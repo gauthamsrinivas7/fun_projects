@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Bass Scale Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
+        }
+        .fretboard {
+            display: grid;
+            grid-template-columns: 50px repeat(15, 1fr);
+            gap: 2px;
+        }
+        .string {
+            display: contents;
+        }
+        .fret {
+            position: relative;
+            background-color: #4a3728;
+            border-right: 2px solid #a0a0a0;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .fret:first-child {
+            border-right: 6px solid #d3d3d3; /* Nut */
+        }
+        .fret:last-child {
+            border-right: none;
+        }
+        .note-dot {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            z-index: 10;
+            cursor: pointer;
+            transition: transform 0.1s ease-out, box-shadow 0.1s ease-out, border 0.1s ease-out;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border: 3px solid transparent;
+        }
+        .note-dot:hover {
+            transform: scale(1.1);
+        }
+        .note-dot.root {
+            background-color: #ef4444; /* Red-500 */
+        }
+        .note-dot.scale-note {
+            background-color: #3b82f6; /* Blue-500 */
+        }
+        .note-dot.playing {
+            transform: scale(1.2);
+            border-color: #facc15; /* Yellow-400 */
+            box-shadow: 0 0 15px #facc15;
+        }
+        .fret-marker {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: #c2b280;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 0;
+        }
+        .fret-marker.double {
+            width: 100%;
+            height: 12px;
+            border-radius: 0;
+            display: flex;
+            justify-content: space-around;
+            background: none;
+        }
+        .fret-marker.double::before, .fret-marker.double::after {
+            content: '';
+            width: 12px;
+            height: 12px;
+            background-color: #c2b280;
+            border-radius: 50%;
+        }
+        .open-string {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #374151;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 antialiased">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-gray-900">Bass Scale Visualizer</h1>
+            <p class="text-lg text-gray-600 mt-2">Find any scale in any key across the fretboard.</p>
+        </header>
+
+        <!-- Controls -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-8 flex flex-col md:flex-row items-center justify-center gap-4 md:gap-6">
+            <div>
+                <label for="root-note-select" class="block text-sm font-medium text-gray-700 mb-1">Root Note</label>
+                <select id="root-note-select" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 w-32 text-center">
+                </select>
+            </div>
+            <div class="flex items-end gap-2">
+                <div>
+                    <label for="scale-select" class="block text-sm font-medium text-gray-700 mb-1">Scale / Mode</label>
+                    <select id="scale-select" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 w-48 text-center">
+                    </select>
+                </div>
+                <button id="play-stop-button" class="h-10 w-10 flex items-center justify-center bg-indigo-600 text-white rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors">
+                    <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                    </svg>
+                    <svg id="stop-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 8a2 2 0 012-2h0a2 2 0 012 2v4a2 2 0 01-2 2h0a2 2 0 01-2-2V8z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Fretboard -->
+        <div class="bg-white p-4 sm:p-6 rounded-xl shadow-lg mb-8 overflow-x-auto">
+             <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Full Fretboard</h2>
+            <div id="fretboard-container" class="min-w-[800px]">
+                <!-- Fret numbers -->
+                <div class="fretboard" style="grid-template-rows: 20px;">
+                    <div class="fret-number-label"></div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">1</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">2</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">3</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">4</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">5</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">6</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">7</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">8</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">9</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">10</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">11</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">12</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">13</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">14</div>
+                    <div class="fret-number-label text-center font-mono text-xs text-gray-500">15</div>
+                </div>
+                <!-- Fretboard itself -->
+                <div id="fretboard" class="fretboard" style="grid-template-rows: repeat(4, 1fr);">
+                    <!-- JS will generate this -->
+                </div>
+            </div>
+        </div>
+        
+        <footer class="text-center mt-12 text-gray-500 text-sm">
+            <p>Built entirely using Gemini. AI will be blamed for all the bugs. I will take all the credit.</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DATA ---
+            const ALL_NOTES_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const TUNING = ['G', 'D', 'A', 'E']; // Standard 4-string bass, from high to low
+            const TUNING_MIDI = [55, 50, 45, 40]; // MIDI numbers for open strings G2, D2, A1, E1
+            const NUM_FRETS = 15;
+
+            const SCALES = {
+                'major': { name: 'Major (Ionian)', intervals: [0, 2, 4, 5, 7, 9, 11] },
+                'natural-minor': { name: 'Natural Minor (Aeolian)', intervals: [0, 2, 3, 5, 7, 8, 10] },
+                'harmonic-minor': { name: 'Harmonic Minor', intervals: [0, 2, 3, 5, 7, 8, 11] },
+                'melodic-minor': { name: 'Melodic Minor', intervals: [0, 2, 3, 5, 7, 9, 11] },
+                'major-pentatonic': { name: 'Major Pentatonic', intervals: [0, 2, 4, 7, 9] },
+                'minor-pentatonic': { name: 'Minor Pentatonic', intervals: [0, 3, 5, 7, 10] },
+                'blues': { name: 'Blues', intervals: [0, 3, 5, 6, 7, 10] },
+                'dorian': { name: 'Dorian', intervals: [0, 2, 3, 5, 7, 9, 10] },
+                'phrygian': { name: 'Phrygian', intervals: [0, 1, 3, 5, 7, 8, 10] },
+                'lydian': { name: 'Lydian', intervals: [0, 2, 4, 6, 7, 9, 11] },
+                'mixolydian': { name: 'Mixolydian', intervals: [0, 2, 4, 5, 7, 9, 10] },
+                'locrian': { name: 'Locrian', intervals: [0, 1, 3, 5, 6, 8, 10] },
+                'major-triad': { name: 'Major Triad', intervals: [0, 4, 7] },
+                'minor-triad': { name: 'Minor Triad', intervals: [0, 3, 7] },
+                'diminished-triad': { name: 'Diminished Triad', intervals: [0, 3, 6] },
+                'augmented-triad': { name: 'Augmented Triad', intervals: [0, 4, 8] }
+            };
+            
+            // --- DOM ELEMENTS ---
+            const rootNoteSelect = document.getElementById('root-note-select');
+            const scaleSelect = document.getElementById('scale-select');
+            const fretboardEl = document.getElementById('fretboard');
+            const playStopButton = document.getElementById('play-stop-button');
+            const playIcon = document.getElementById('play-icon');
+            const stopIcon = document.getElementById('stop-icon');
+
+            // --- STATE ---
+            let fretboardNotes = [];
+            let isPlaying = false;
+
+            // --- AUDIO SYNTH ---
+            const synth = new Tone.MonoSynth({
+                oscillator: { type: 'fatsawtooth' },
+                envelope: { attack: 0.05, decay: 0.3, sustain: 0.4, release: 0.8 },
+                filterEnvelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.5, baseFrequency: 200, octaves: 4 }
+            }).toDestination();
+
+            // --- INITIALIZATION ---
+            function init() {
+                populateSelectors();
+                createFretboard();
+                addEventListeners();
+                updateVisualization();
+            }
+
+            function populateSelectors() {
+                ALL_NOTES_SHARP.forEach(note => {
+                    const option = document.createElement('option');
+                    option.value = note;
+                    option.textContent = note;
+                    rootNoteSelect.appendChild(option);
+                });
+                for (const key in SCALES) {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = SCALES[key].name;
+                    scaleSelect.appendChild(option);
+                }
+                rootNoteSelect.value = 'C';
+                scaleSelect.value = 'major';
+            }
+            
+            function createFretboard() {
+                fretboardNotes = [];
+                fretboardEl.innerHTML = '';
+                const markers = { 3: 'single', 5: 'single', 7: 'single', 9: 'single', 12: 'double', 15: 'single' };
+
+                TUNING.forEach((openNote, stringIndex) => {
+                    const stringNotes = [];
+                    const stringDiv = document.createElement('div');
+                    stringDiv.className = 'string';
+                    const openStringDiv = document.createElement('div');
+                    openStringDiv.className = 'open-string';
+                    openStringDiv.textContent = openNote;
+                    stringDiv.appendChild(openStringDiv);
+                    
+                    for (let fret = 1; fret <= NUM_FRETS; fret++) {
+                        const midi = TUNING_MIDI[stringIndex] + fret;
+                        const note = ALL_NOTES_SHARP[midi % 12];
+                        stringNotes.push({ note, fret, string: stringIndex, midi });
+
+                        const fretDiv = document.createElement('div');
+                        fretDiv.className = 'fret';
+                        fretDiv.dataset.string = stringIndex;
+                        fretDiv.dataset.fret = fret;
+                        fretDiv.dataset.note = note;
+                        if ((stringIndex === 1 || stringIndex === 2) && markers[fret] && stringIndex === 1) {
+                            const markerDiv = document.createElement('div');
+                            markerDiv.className = `fret-marker ${markers[fret] === 'double' ? 'double' : ''}`;
+                            fretDiv.appendChild(markerDiv);
+                        }
+                        stringDiv.appendChild(fretDiv);
+                    }
+                    fretboardEl.appendChild(stringDiv);
+                    fretboardNotes.push(stringNotes);
+                });
+            }
+
+            function addEventListeners() {
+                rootNoteSelect.addEventListener('change', updateVisualization);
+                scaleSelect.addEventListener('change', updateVisualization);
+                playStopButton.addEventListener('click', handlePlayStopClick);
+            }
+
+            // --- CORE LOGIC ---
+            function getScaleNotes(rootNote, scaleKey) {
+                const rootIndex = ALL_NOTES_SHARP.indexOf(rootNote);
+                if (rootIndex === -1) return [];
+                const intervals = SCALES[scaleKey].intervals;
+                return intervals.map(interval => ALL_NOTES_SHARP[(rootIndex + interval) % ALL_NOTES_SHARP.length]);
+            }
+
+            function updateVisualization() {
+                if (isPlaying) stopPlayback();
+                clearFretboard();
+                const rootNote = rootNoteSelect.value;
+                const scaleKey = scaleSelect.value;
+                const scaleNotes = getScaleNotes(rootNote, scaleKey);
+                if (scaleNotes.length === 0) return;
+                fretboardNotes.flat().forEach(fretData => {
+                    if (scaleNotes.includes(fretData.note)) {
+                        const isRoot = fretData.note === rootNote;
+                        addNoteDot(fretData.string, fretData.fret, fretData.note, isRoot);
+                    }
+                });
+            }
+
+            function clearFretboard() {
+                document.querySelectorAll('.note-dot').forEach(dot => dot.remove());
+            }
+
+            function addNoteDot(string, fret, note, isRoot) {
+                const dot = document.createElement('div');
+                dot.className = 'note-dot';
+                dot.classList.add(isRoot ? 'root' : 'scale-note');
+                dot.textContent = note;
+                let targetFret = fretboardEl.querySelector(`[data-string='${string}'][data-fret='${fret}']`);
+                if (targetFret) targetFret.appendChild(dot);
+            }
+
+            // --- AUDIO PLAYBACK ---
+            function handlePlayStopClick() {
+                if (isPlaying) {
+                    stopPlayback();
+                } else {
+                    startPlayback();
+                }
+            }
+            
+            async function startPlayback() {
+                await Tone.start();
+                isPlaying = true;
+                playStopButton.disabled = true; // Prevent quick re-clicks
+                
+                playIcon.classList.add('hidden');
+                stopIcon.classList.remove('hidden');
+                playStopButton.disabled = false;
+
+                const rootNote = rootNoteSelect.value;
+                const scaleKey = scaleSelect.value;
+                const scaleNoteNames = getScaleNotes(rootNote, scaleKey);
+
+                const allScaleNotesOnFretboard = fretboardNotes.flat().filter(noteData => scaleNoteNames.includes(noteData.note));
+
+                const lowestRoot = allScaleNotesOnFretboard
+                    .filter(n => n.note === rootNote)
+                    .sort((a, b) => a.midi - b.midi)[0];
+
+                if (!lowestRoot) {
+                    stopPlayback();
+                    return;
+                }
+
+                const playbackSequence = [lowestRoot];
+                let lastNoteMidi = lowestRoot.midi;
+
+                for (let i = 1; i < scaleNoteNames.length; i++) {
+                    const nextNoteName = scaleNoteNames[i];
+                    
+                    const nextNote = allScaleNotesOnFretboard
+                        .filter(n => n.note === nextNoteName && n.midi > lastNoteMidi)
+                        .sort((a, b) => a.midi - b.midi)[0];
+                    
+                    if (nextNote) {
+                        playbackSequence.push(nextNote);
+                        lastNoteMidi = nextNote.midi;
+                    } else {
+                        break; 
+                    }
+                }
+
+                const octaveRoot = allScaleNotesOnFretboard.find(n => n.midi === lowestRoot.midi + 12);
+                if(octaveRoot) playbackSequence.push(octaveRoot);
+
+                Tone.Transport.cancel();
+
+                playbackSequence.forEach((noteData, index) => {
+                    Tone.Transport.schedule(time => {
+                        const frequency = Tone.Frequency(noteData.midi, "midi").toFrequency();
+                        synth.triggerAttackRelease(frequency, '8n', time);
+                        
+                        Tone.Draw.schedule(() => {
+                            highlightSingleNote(noteData.string, noteData.fret);
+                        }, time);
+
+                    }, index * 0.5);
+                });
+
+                Tone.Transport.schedule(time => {
+                    Tone.Draw.schedule(() => {
+                        stopPlayback();
+                    }, time);
+                }, playbackSequence.length * 0.5);
+
+                Tone.Transport.start();
+            }
+
+            function stopPlayback() {
+                Tone.Transport.stop();
+                Tone.Transport.cancel();
+                clearAllHighlights();
+                isPlaying = false;
+                
+                playIcon.classList.remove('hidden');
+                stopIcon.classList.add('hidden');
+                playStopButton.disabled = false;
+            }
+
+            function highlightSingleNote(string, fret) {
+                clearAllHighlights();
+                const dot = fretboardEl.querySelector(`[data-string='${string}'][data-fret='${fret}'] > .note-dot`);
+                if (dot) {
+                    dot.classList.add('playing');
+                }
+            }
+            
+            function clearAllHighlights() {
+                const playingDots = document.querySelectorAll('.note-dot.playing');
+                playingDots.forEach(dot => dot.classList.remove('playing'));
+            }
+
+            // --- START THE APP ---
+            init();
+        });
+    </script>
+</body>
+</html>
+
